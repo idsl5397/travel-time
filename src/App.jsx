@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import Login from "./components/Login"; // Import the Login component
 import {
     MapContainer,
     TileLayer,
@@ -1467,6 +1468,15 @@ function NotesPage() {
 // --------- 上層 App:控制分頁切換 ---------
 export default function App() {
     const [tab, setTab] = useState("travel");
+    const [isLoggedIn, setIsLoggedIn] = useState(false); // New state for login status
+
+    const handleLoginSuccess = () => {
+        setIsLoggedIn(true);
+    };
+
+    if (!isLoggedIn) {
+        return <Login onLoginSuccess={handleLoginSuccess} />;
+    }
 
     return (
         <div
