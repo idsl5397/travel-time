@@ -32,7 +32,7 @@ export default function App() {
             }}
         >
             {/* 上面內容區 */}
-            <div style={{ flex: 1, overflow: "hidden" }}>
+            <div style={{ flex: 1}}>
                 {tab === "travel" && <TravelPage />}
                 {tab === "packing" && <PackingPage />}
                 {tab === "notes" && <NotesPage />}

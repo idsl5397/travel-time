@@ -263,7 +263,8 @@ export default function TravelPage() {
                 paddingBottom: "12px",
                 display: "flex",
                 flexDirection: "column",
-                height: "100%",
+                // height: "100%",
+                minHeight: "100vh",
                 background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
             }}
         >
@@ -916,8 +917,8 @@ export default function TravelPage() {
             {/* 地圖 */}
             <div
                 style={{
-                    flex: 1,
-                    minHeight: "200px",
+                    // flex: 1,
+                    height: "320px",
                     borderRadius: "16px",
                     overflow: "hidden",
                     boxShadow: "0 8px 16px rgba(0,0,0,0.2)",
