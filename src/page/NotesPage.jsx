@@ -129,6 +129,7 @@ export default function NotesPage() {
             {/* 輸入區 */}
             <div style={{ marginBottom: "16px" }}>
                 <textarea
+                    id="notes"
                     value={newNote}
                     onChange={(e) => setNewNote(e.target.value)}
                     placeholder="今天去了哪裡?有什麼有趣的事情發生嗎?🌟"
@@ -213,6 +214,7 @@ export default function NotesPage() {
                                 {editingId === note.id ? (
                                     <div>
                                         <textarea
+                                            id={note.id}
                                             value={editText}
                                             onChange={(e) =>
                                                 setEditText(e.target.value)
