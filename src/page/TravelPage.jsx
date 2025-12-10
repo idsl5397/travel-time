@@ -86,6 +86,13 @@ export default function TravelPage() {
         loadMarkers();
     }, []);
 
+    // 在 component 裡某個地方，hooks 後面即可：
+    const isOnline =
+        typeof navigator !== "undefined" ? navigator.onLine : true;
+
+    // Google Maps 如果載入失敗 / 還沒載完 / 離線，就當作「地圖不可用」
+    const mapUnavailable = loadError || !isLoaded || !isOnline;
+
     const saveMarkers = async (newMarkers) => {
         setMarkers(newMarkers);
         try {
@@ -260,23 +267,6 @@ export default function TravelPage() {
     const totalMarkers = filteredMarkers.length;
     const uniqueDates = [...new Set(filteredMarkers.map((m) => m.date))].length;
 
-    // Google Map 載入狀態
-    if (loadError) {
-        return (
-            <div style={{ color: "#fff", padding: 16 }}>
-                地圖載入失敗，請稍後再試。
-            </div>
-        );
-    }
-
-    if (!isLoaded) {
-        return (
-            <div style={{ color: "#fff", padding: 16 }}>
-                地圖載入中…
-            </div>
-        );
-    }
-
     return (
         <div
             style={{
@@ -315,7 +305,7 @@ export default function TravelPage() {
                     >
                         {totalMarkers}
                     </div>
-                    <div style={{ fontSize: "12px", color: "#666" }}>景點數（目前視圖）</div>
+                    <div style={{fontSize: "12px", color: "#666"}}>景點數（目前視圖）</div>
                 </div>
                 <div
                     style={{
@@ -336,12 +326,12 @@ export default function TravelPage() {
                     >
                         {uniqueDates}
                     </div>
-                    <div style={{ fontSize: "12px", color: "#666" }}>天數（目前視圖）</div>
+                    <div style={{fontSize: "12px", color: "#666"}}>天數（目前視圖）</div>
                 </div>
             </div>
 
             {/* 標題與控制 */}
-            <div style={{ marginBottom: "16px" }}>
+            <div style={{marginBottom: "16px"}}>
                 <div
                     style={{
                         display: "flex",
@@ -363,10 +353,10 @@ export default function TravelPage() {
                             gap: "8px",
                         }}
                     >
-                        <MapPin size={24} />
+                        <MapPin size={24}/>
                         旅遊行程紀錄
                     </h2>
-                    <div style={{ display: "flex", gap: "8px" }}>
+                    <div style={{display: "flex", gap: "8px"}}>
                         <button
                             onClick={() => setShowRoute(!showRoute)}
                             style={{
@@ -584,7 +574,7 @@ export default function TravelPage() {
                                         setEndTime(laterStr);
                                     }
                                 }}
-                                style={{ cursor: "pointer" }}
+                                style={{cursor: "pointer"}}
                             />
                             不想選時間
                         </label>
@@ -715,7 +705,7 @@ export default function TravelPage() {
                 </div>
 
                 {filterMode === "single" && (
-                    <div style={{ marginTop: "4px" }}>
+                    <div style={{marginTop: "4px"}}>
                         <input
                             type="date"
                             value={filterDate}
@@ -741,7 +731,7 @@ export default function TravelPage() {
                             fontSize: "12px",
                         }}
                     >
-                        <div style={{ flex: 1 }}>
+                        <div style={{flex: 1}}>
                             <div
                                 style={{
                                     color: "rgba(255,255,255,0.8)",
@@ -764,7 +754,7 @@ export default function TravelPage() {
                                 }}
                             />
                         </div>
-                        <div style={{ flex: 1 }}>
+                        <div style={{flex: 1}}>
                             <div
                                 style={{
                                     color: "rgba(255,255,255,0.8)",
@@ -925,69 +915,89 @@ export default function TravelPage() {
                     borderRadius: "16px",
                     overflow: "hidden",
                     boxShadow: "0 8px 16px rgba(0,0,0,0.2)",
+                    background: "rgba(15,23,42,0.9)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                 }}
             >
-                <GoogleMap
-                    mapContainerStyle={mapContainerStyle}
-                    center={defaultCenter}
-                    zoom={7}
-                    onLoad={(map) => setMapRef(map)}
-                    onClick={handleMapClick}
-                    options={{
-                        fullscreenControl: false,
-                        streetViewControl: false,
-                        mapTypeControl: false,
-                    }}
-                >
-                    {/* 暫存選擇地點 (pending marker) */}
-                    {pendingPosition && (
-                        <Marker
-                            position={pendingPosition}
-                            icon={{
-                                path: window.google.maps.SymbolPath.CIRCLE,
-                                scale: 8,
-                                fillColor: "#22c55e",
-                                fillOpacity: 0.9,
-                                strokeColor: "#ffffff",
-                                strokeWeight: 2,
-                            }}
-                        />
-                    )}
+                {mapUnavailable ? (
+                    <div
+                        style={{
+                            color: "#e5e7eb",
+                            fontSize: "13px",
+                            textAlign: "center",
+                            padding: "16px",
+                        }}
+                    >
+                        📵 目前無法載入地圖（可能是離線或 Google Maps 無法連線）<br/>
+                        <span style={{fontSize: "12px", opacity: 0.9}}>
+                            但不用擔心，你仍然可以在下方查看已紀錄行程 ✅
+                        </span>
+                    </div>
+                ) : (
+                    <GoogleMap
+                        mapContainerStyle={mapContainerStyle}
+                        center={defaultCenter}
+                        zoom={7}
+                        onLoad={(map) => setMapRef(map)}
+                        onClick={handleMapClick}
+                        options={{
+                            fullscreenControl: false,
+                            streetViewControl: false,
+                            mapTypeControl: false,
+                        }}
+                    >
+                        {/* 暫存選擇地點 (pending marker) */}
+                        {pendingPosition && (
+                            <Marker
+                                position={pendingPosition}
+                                icon={{
+                                    path: window.google.maps.SymbolPath.CIRCLE,
+                                    scale: 8,
+                                    fillColor: "#22c55e",
+                                    fillOpacity: 0.9,
+                                    strokeColor: "#ffffff",
+                                    strokeWeight: 2,
+                                }}
+                            />
+                        )}
 
-                    {/* 路線 */}
-                    {routePath.length > 1 && (
-                        <Polyline
-                            key={`route-${filteredMarkers.length}-${filteredMarkers
-                                .map((m) => m.id)
-                                .sort()
-                                .join("-")}`}
-                            path={routePath}
-                            options={{
-                                strokeColor: "#667eea",
-                                strokeOpacity: 0.8,
-                                strokeWeight: 3,
-                            }}
-                        />
-                    )}
+                        {/* 路線 */}
+                        {routePath.length > 1 && (
+                            <Polyline
+                                key={`route-${filteredMarkers.length}-${filteredMarkers
+                                    .map((m) => m.id)
+                                    .sort()
+                                    .join("-")}`}
+                                path={routePath}
+                                options={{
+                                    strokeColor: "#667eea",
+                                    strokeOpacity: 0.8,
+                                    strokeWeight: 3,
+                                }}
+                            />
+                        )}
 
-                    {/* 已建立行程 marker */}
-                    {filteredMarkers.map((m) => (
-                        <Marker
-                            key={m.id}
-                            position={{
-                                lat: m.position[0],
-                                lng: m.position[1],
-                            }}
-                            label={{
-                                text:
-                                    m.text.length > 6
-                                        ? m.text.slice(0, 6) + "…"
-                                        : m.text,
-                                fontSize: "10px",
-                            }}
-                        />
-                    ))}
-                </GoogleMap>
+                        {/* 已建立行程 marker */}
+                        {filteredMarkers.map((m) => (
+                            <Marker
+                                key={m.id}
+                                position={{
+                                    lat: m.position[0],
+                                    lng: m.position[1],
+                                }}
+                                label={{
+                                    text:
+                                        m.text.length > 6
+                                            ? m.text.slice(0, 6) + "…"
+                                            : m.text,
+                                    fontSize: "10px",
+                                }}
+                            />
+                        ))}
+                    </GoogleMap>
+                )}
             </div>
 
             {/* 📝 已紀錄行程（移到地圖下方） */}
@@ -1084,7 +1094,7 @@ export default function TravelPage() {
                                                         cursor: "pointer",
                                                     }}
                                                 >
-                                                    <Check size={14} />
+                                                    <Check size={14}/>
                                                 </button>
                                                 <button
                                                     onClick={cancelEdit}
@@ -1097,12 +1107,12 @@ export default function TravelPage() {
                                                         cursor: "pointer",
                                                     }}
                                                 >
-                                                    <X size={14} />
+                                                    <X size={14}/>
                                                 </button>
                                             </div>
                                         ) : (
                                             <>
-                                                <div style={{ flex: 1 }}>
+                                                <div style={{flex: 1}}>
                                                     {/* 事由 */}
                                                     <div
                                                         style={{
