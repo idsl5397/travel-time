@@ -66,6 +66,13 @@ export default function TravelPage() {
         libraries: libraries,
     });
 
+    // ✅ 判斷 Google Maps 真的有載到（避免 google is not defined）
+    const isGoogleReady =
+        isLoaded &&
+        typeof window !== "undefined" &&
+        typeof window.google !== "undefined" &&
+        !!window.google.maps;
+
     useEffect(() => {
         const loadMarkers = async () => {
             try {
@@ -86,12 +93,6 @@ export default function TravelPage() {
         loadMarkers();
     }, []);
 
-    // 在 component 裡某個地方，hooks 後面即可：
-    const isOnline =
-        typeof navigator !== "undefined" ? navigator.onLine : true;
-
-    // Google Maps 如果載入失敗 / 還沒載完 / 離線，就當作「地圖不可用」
-    const mapUnavailable = loadError || !isLoaded || !isOnline;
 
     const saveMarkers = async (newMarkers) => {
         setMarkers(newMarkers);
@@ -800,15 +801,34 @@ export default function TravelPage() {
                         marginBottom: "6px",
                     }}
                 >
-                    <Autocomplete
-                        onLoad={onAutocompleteLoad}
-                        onPlaceChanged={onPlaceChanged}
-                    >
+                    {isGoogleReady ? (
+                        <Autocomplete
+                            onLoad={onAutocompleteLoad}
+                            onPlaceChanged={onPlaceChanged}
+                        >
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="🔍 搜尋地點，例如：台北車站、六合夜市、台南美術館⋯"
+                                style={{
+                                    flex: 1,
+                                    padding: "8px 10px",
+                                    borderRadius: "10px",
+                                    border: "none",
+                                    fontSize: "13px",
+                                    background: "rgba(255,255,255,0.95)",
+                                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                                    outline: "none",
+                                }}
+                            />
+                        </Autocomplete>
+                    ) : (
                         <input
                             type="text"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="🔍 搜尋地點，例如：台北車站、六合夜市、台南美術館⋯"
+                            value={pendingLabel}
+                            onChange={(e) => setPendingLabel(e.target.value)}
+                            placeholder="目前無法連線 Google 地圖，可以手動輸入地點名稱作為紀錄用"
                             style={{
                                 flex: 1,
                                 padding: "8px 10px",
@@ -820,25 +840,28 @@ export default function TravelPage() {
                                 outline: "none",
                             }}
                         />
-                    </Autocomplete>
-                    <button
-                        type="button"
-                        disabled={isSearching}
-                        style={{
-                            padding: "8px 12px",
-                            borderRadius: "10px",
-                            border: "none",
-                            background: "#4f46e5",
-                            color: "#fff",
-                            fontSize: "13px",
-                            cursor: "pointer",
-                            opacity: isSearching ? 0.7 : 1,
-                            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-                        }}
-                        onClick={onPlaceChanged}
-                    >
-                        {isSearching ? "搜尋中…" : "搜尋"}
-                    </button>
+                    )}
+
+                    {isGoogleReady && (
+                        <button
+                            type="button"
+                            disabled={isSearching}
+                            style={{
+                                padding: "8px 12px",
+                                borderRadius: "10px",
+                                border: "none",
+                                background: "#4f46e5",
+                                color: "#fff",
+                                fontSize: "13px",
+                                cursor: "pointer",
+                                opacity: isSearching ? 0.7 : 1,
+                                boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                            }}
+                            onClick={onPlaceChanged}
+                        >
+                            {isSearching ? "搜尋中…" : "搜尋"}
+                        </button>
+                    )}
                 </div>
 
                 {/* 目前選擇地點 + 建立按鈕 */}
@@ -867,8 +890,10 @@ export default function TravelPage() {
                                     : "rgba(255,255,255,0.7)",
                             }}
                         >
-                            {pendingPosition ? pendingLabel || "已選擇" : "尚未選擇"}
-                        </span>
+              {pendingPosition
+                  ? pendingLabel || "已選擇"
+                  : pendingLabel || "尚未選擇"}
+            </span>
                     </div>
                     <button
                         type="button"
@@ -908,34 +933,16 @@ export default function TravelPage() {
                 )}
             </div>
 
-            {/* Google Map */}
-            <div
-                style={{
-                    height: "320px",
-                    borderRadius: "16px",
-                    overflow: "hidden",
-                    boxShadow: "0 8px 16px rgba(0,0,0,0.2)",
-                    background: "rgba(15,23,42,0.9)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                }}
-            >
-                {mapUnavailable ? (
-                    <div
-                        style={{
-                            color: "#e5e7eb",
-                            fontSize: "13px",
-                            textAlign: "center",
-                            padding: "16px",
-                        }}
-                    >
-                        📵 目前無法載入地圖（可能是離線或 Google Maps 無法連線）<br/>
-                        <span style={{fontSize: "12px", opacity: 0.9}}>
-                            但不用擔心，你仍然可以在下方查看已紀錄行程 ✅
-                        </span>
-                    </div>
-                ) : (
+            {/* Google Map（如果載不到，就顯示離線提示而不是 crash） */}
+            {isGoogleReady && !loadError ? (
+                <div
+                    style={{
+                        height: "320px",
+                        borderRadius: "16px",
+                        overflow: "hidden",
+                        boxShadow: "0 8px 16px rgba(0,0,0,0.2)",
+                    }}
+                >
                     <GoogleMap
                         mapContainerStyle={mapContainerStyle}
                         center={defaultCenter}
@@ -997,8 +1004,22 @@ export default function TravelPage() {
                             />
                         ))}
                     </GoogleMap>
-                )}
-            </div>
+                </div>
+            ) : (
+                <div
+                    style={{
+                        marginTop: "8px",
+                        padding: "12px",
+                        borderRadius: "12px",
+                        background: "rgba(15,23,42,0.4)",
+                        color: "rgba(248,250,252,0.9)",
+                        fontSize: "12px",
+                    }}
+                >
+                    🌐 目前無法載入 Google 地圖（可能是離線或網路問題），
+                    但你仍然可以在下方查看與管理已紀錄的行程。
+                </div>
+            )}
 
             {/* 📝 已紀錄行程（移到地圖下方） */}
             {filteredMarkers.length > 0 && (
