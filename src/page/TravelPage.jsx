@@ -721,7 +721,7 @@ export default function TravelPage() {
                             value={filterDate}
                             onChange={(e) => setFilterDate(e.target.value)}
                             style={{
-                                width: "100%",
+                                width: "90%",
                                 padding: "8px",
                                 borderRadius: "8px",
                                 border: "none",
