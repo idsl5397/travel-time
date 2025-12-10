@@ -143,7 +143,7 @@ export default function PackingPage() {
     };
 
     const clearChecked = () => {
-        if (window.confirm("確定要清除所有已勾選的項目嗎？")) {
+        if (window.confirm("確定要刪除所有已勾選的項目嗎？")) {
             const updated = items.filter((it) => !it.checked);
             saveItems(updated);
         }
@@ -269,7 +269,7 @@ export default function PackingPage() {
                                 backdropFilter: "blur(10px)",
                             }}
                         >
-                            清除已勾選
+                            刪除已勾選
                         </button>
                     )}
                     {items.length > 0 && (
