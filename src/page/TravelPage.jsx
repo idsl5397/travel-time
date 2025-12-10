@@ -16,6 +16,7 @@ const mapContainerStyle = {
     width: "100%",
     height: "100%",
 };
+
 const libraries = ["places"];
 
 export default function TravelPage() {
@@ -24,9 +25,17 @@ export default function TravelPage() {
     const [selectedDate, setSelectedDate] = useState(
         new Date().toISOString().split("T")[0]
     );
-    const [selectedTime, setSelectedTime] = useState(
-        new Date().toTimeString().slice(0, 5) // "HH:MM"
+
+    // ✅ 開始時間 / 結束時間 + 不想選時間
+    const [startTime, setStartTime] = useState(() =>
+        new Date().toTimeString().slice(0, 5)
     );
+    const [endTime, setEndTime] = useState(() => {
+        const d = new Date();
+        d.setHours(d.getHours() + 1);
+        return d.toTimeString().slice(0, 5);
+    });
+    const [ignoreTime, setIgnoreTime] = useState(false);
 
     const [showRoute, setShowRoute] = useState(true);
     const [editingId, setEditingId] = useState(null);
@@ -100,17 +109,25 @@ export default function TravelPage() {
         const newMarker = {
             id: Date.now(),
             position: [pendingPosition.lat, pendingPosition.lng],
-            text: note.trim(),         // 事由
-            date: selectedDate,        // 日期
-            time: selectedTime,        // 🕒 新增：時間
-            location: pendingLabel,    // 📍 新增：地點名稱（或你暫存的文字）
+            text: note.trim(), // 事由
+            date: selectedDate, // 日期
+
+            // ✅ 新欄位：開始時間 / 結束時間
+            // 如果勾「不想選時間」，就存 null
+            startTime: ignoreTime ? null : startTime,
+            endTime: ignoreTime ? null : endTime,
+
+            // 為了跟舊資料兼容，保留 time 欄位（用開始時間）
+            time: ignoreTime ? null : startTime,
+
+            location: pendingLabel, // 地點名稱
             timestamp: Date.now(),
         };
 
         const updated = [...markers, newMarker];
         saveMarkers(updated);
 
-        // 建立完成後，清掉事由與暫存地點，但保留日期與時間
+        // 建立完成後，清掉事由與暫存地點，但保留日期與時間設定
         setNote("");
         setPendingPosition(null);
         setPendingLabel("");
@@ -214,13 +231,18 @@ export default function TravelPage() {
         return true;
     });
 
-    // 先依日期 + 時間 + timestamp 排序
+    // 先依日期 + 時間 + timestamp 排序（給路線用）
     const sortedForRoute = [...filteredMarkers].sort((a, b) => {
         if (a.date !== b.date) {
             return a.date.localeCompare(b.date);
         }
-        if (a.time && b.time && a.time !== b.time) {
-            return a.time.localeCompare(b.time);
+
+        // ✅ 優先用 startTime，退而求其次用舊的 time 欄位
+        const aTime = a.startTime || a.time || "";
+        const bTime = b.startTime || b.time || "";
+
+        if (aTime && bTime && aTime !== bTime) {
+            return aTime.localeCompare(bTime);
         }
         return (a.timestamp || 0) - (b.timestamp || 0);
     });
@@ -233,7 +255,6 @@ export default function TravelPage() {
                 lng: m.position[1],
             }))
             : [];
-
 
     // 統計
     const totalMarkers = filteredMarkers.length;
@@ -320,7 +341,7 @@ export default function TravelPage() {
             </div>
 
             {/* 標題與控制 */}
-            <div style={{marginBottom: "16px"}}>
+            <div style={{ marginBottom: "16px" }}>
                 <div
                     style={{
                         display: "flex",
@@ -342,10 +363,10 @@ export default function TravelPage() {
                             gap: "8px",
                         }}
                     >
-                        <MapPin size={24}/>
-                        旅遊行程紀錄（Google Maps）
+                        <MapPin size={24} />
+                        旅遊行程紀錄
                     </h2>
-                    <div style={{display: "flex", gap: "8px"}}>
+                    <div style={{ display: "flex", gap: "8px" }}>
                         <button
                             onClick={() => setShowRoute(!showRoute)}
                             style={{
@@ -403,70 +424,170 @@ export default function TravelPage() {
                     💡 <b>流程：</b> 先選日期 → 輸入事由 → 點地圖或用搜尋選地點 → 按「建立行程」。
                 </p>
 
-                {/* 新增行程用的日期跟時間 */}
+                {/* 日期 */}
+                <div
+                    style={{
+                        marginBottom: "8px",
+                    }}
+                >
+                    <label
+                        style={{
+                            display: "block",
+                            fontSize: "12px",
+                            color: "rgba(255,255,255,0.8)",
+                            marginBottom: "4px",
+                        }}
+                    >
+                        新增行程的日期
+                    </label>
+                    <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        style={{
+                            width: "90%",
+                            padding: "12px",
+                            borderRadius: "12px",
+                            border: "none",
+                            fontSize: "14px",
+                            background: "rgba(255,255,255,0.95)",
+                            boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+                            outline: "none",
+                        }}
+                    />
+                </div>
+
+                {/* ✅ 行程時間（開始 / 結束 + 不想選時間） */}
                 <div
                     style={{
                         marginBottom: "12px",
-                        display: "flex",
-                        gap: "10px",
                     }}
                 >
-                    {/* 日期 */}
-                    <div style={{flex: 1}}>
-                        <label
+                    <label
+                        style={{
+                            display: "block",
+                            fontSize: "12px",
+                            color: "rgba(255,255,255,0.8)",
+                            marginBottom: "4px",
+                        }}
+                    >
+                        行程時間（可選）
+                    </label>
+                    <div
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                        }}
+                    >
+                        <div
                             style={{
-                                display: "block",
-                                fontSize: "12px",
-                                color: "rgba(255,255,255,0.8)",
-                                marginBottom: "4px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "4px",
                             }}
                         >
-                            新增行程的日期
-                        </label>
-                        <input
-                            type="date"
-                            value={selectedDate}
-                            onChange={(e) => setSelectedDate(e.target.value)}
-                            style={{
-                                width: "100%",
-                                padding: "12px",
-                                borderRadius: "12px",
-                                border: "none",
-                                fontSize: "14px",
-                                background: "rgba(255,255,255,0.95)",
-                                boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
-                                outline: "none",
-                            }}
-                        />
-                    </div>
+                            <span
+                                style={{
+                                    fontSize: "12px",
+                                    color: "rgba(255,255,255,0.9)",
+                                }}
+                            >
+                                開始
+                            </span>
+                            <input
+                                type="time"
+                                value={startTime || ""}
+                                onChange={(e) => setStartTime(e.target.value)}
+                                disabled={ignoreTime}
+                                style={{
+                                    width: "110px",
+                                    padding: "8px",
+                                    borderRadius: "10px",
+                                    border: "none",
+                                    fontSize: "13px",
+                                    background: ignoreTime
+                                        ? "rgba(148,163,184,0.5)"
+                                        : "rgba(255,255,255,0.95)",
+                                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                                    outline: "none",
+                                }}
+                            />
+                        </div>
 
-                    {/* 時間 */}
-                    <div style={{width: "120px"}}>
-                        <label
+                        <div
                             style={{
-                                display: "block",
-                                fontSize: "12px",
-                                color: "rgba(255,255,255,0.8)",
-                                marginBottom: "4px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "4px",
                             }}
                         >
-                            時間
-                        </label>
-                        <input
-                            type="time"
-                            value={selectedTime}
-                            onChange={(e) => setSelectedTime(e.target.value)}
+                            <span
+                                style={{
+                                    fontSize: "12px",
+                                    color: "rgba(255,255,255,0.9)",
+                                }}
+                            >
+                                結束
+                            </span>
+                            <input
+                                type="time"
+                                value={endTime || ""}
+                                onChange={(e) => setEndTime(e.target.value)}
+                                disabled={ignoreTime}
+                                style={{
+                                    width: "110px",
+                                    padding: "8px",
+                                    borderRadius: "10px",
+                                    border: "none",
+                                    fontSize: "13px",
+                                    background: ignoreTime
+                                        ? "rgba(148,163,184,0.5)"
+                                        : "rgba(255,255,255,0.95)",
+                                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                                    outline: "none",
+                                }}
+                            />
+                        </div>
+
+                        <label
                             style={{
-                                width: "100%",
-                                padding: "12px",
-                                borderRadius: "12px",
-                                border: "none",
-                                fontSize: "14px",
-                                background: "rgba(255,255,255,0.95)",
-                                boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
-                                outline: "none",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontSize: "12px",
+                                color: "rgba(255,255,255,0.9)",
+                                cursor: "pointer",
                             }}
-                        />
+                        >
+                            <input
+                                type="checkbox"
+                                checked={ignoreTime}
+                                onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setIgnoreTime(checked);
+                                    if (checked) {
+                                        // 勾選「不想選時間」時，把時間清空
+                                        setStartTime("");
+                                        setEndTime("");
+                                    } else {
+                                        // 取消勾選時，幫他填回一個預設時間
+                                        const now = new Date();
+                                        const nowStr =
+                                            now.toTimeString().slice(0, 5);
+                                        const d = new Date();
+                                        d.setHours(d.getHours() + 1);
+                                        const laterStr =
+                                            d.toTimeString().slice(0, 5);
+                                        setStartTime(nowStr);
+                                        setEndTime(laterStr);
+                                    }
+                                }}
+                                style={{ cursor: "pointer" }}
+                            />
+                            不想選時間
+                        </label>
                     </div>
                 </div>
 
@@ -500,184 +621,6 @@ export default function TravelPage() {
                             "0 4px 6px rgba(0,0,0,0.1)";
                     }}
                 />
-
-                {/* 已紀錄行程列表（使用篩選後的資料） */}
-                {filteredMarkers.length > 0 && (
-                    <div
-                        style={{
-                            marginTop: "16px",
-                            background: "rgba(255,255,255,0.95)",
-                            borderRadius: "12px",
-                            padding: "14px",
-                            boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
-                        }}
-                    >
-                        <h3
-                            style={{
-                                fontSize: "15px",
-                                margin: "0 0 10px",
-                                color: "#667eea",
-                                fontWeight: "600",
-                            }}
-                        >
-                            📝 已紀錄行程（依目前篩選）
-                        </h3>
-                        <ul
-                            style={{
-                                listStyle: "none",
-                                paddingLeft: 0,
-                                margin: 0,
-                                fontSize: "13px",
-                                maxHeight: "120px",
-                                overflowY: "auto",
-                            }}
-                        >
-                            {[...filteredMarkers]
-                                .sort((a, b) => b.timestamp - a.timestamp)
-                                .map((m) => (
-                                    <li
-                                        key={m.id}
-                                        style={{
-                                            marginBottom: "8px",
-                                            padding: "8px",
-                                            background: "#f8f9fa",
-                                            borderRadius: "8px",
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            alignItems: "center",
-                                        }}
-                                    >
-                                        {editingId === m.id ? (
-                                            <div
-                                                style={{
-                                                    flex: 1,
-                                                    display: "flex",
-                                                    gap: "8px",
-                                                }}
-                                            >
-                                                <input
-                                                    type="text"
-                                                    value={editText}
-                                                    onChange={(e) =>
-                                                        setEditText(e.target.value)
-                                                    }
-                                                    style={{
-                                                        flex: 1,
-                                                        padding: "4px 8px",
-                                                        borderRadius: "6px",
-                                                        border: "1px solid #ddd",
-                                                        fontSize: "13px",
-                                                    }}
-                                                />
-                                                <button
-                                                    onClick={saveEdit}
-                                                    style={{
-                                                        border: "none",
-                                                        background: "#4caf50",
-                                                        color: "#fff",
-                                                        borderRadius: "6px",
-                                                        padding: "4px 8px",
-                                                        cursor: "pointer",
-                                                    }}
-                                                >
-                                                    <Check size={14}/>
-                                                </button>
-                                                <button
-                                                    onClick={cancelEdit}
-                                                    style={{
-                                                        border: "none",
-                                                        background: "#f44336",
-                                                        color: "#fff",
-                                                        borderRadius: "6px",
-                                                        padding: "4px 8px",
-                                                        cursor: "pointer",
-                                                    }}
-                                                >
-                                                    <X size={14}/>
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <div style={{flex: 1}}>
-                                                    {/* 事由 */}
-                                                    <div
-                                                        style={{
-                                                            color: "#555",
-                                                            lineHeight: "1.5",
-                                                        }}
-                                                    >
-                                                        {m.text}
-                                                    </div>
-
-                                                    {/* 日期 + 時間 */}
-                                                    <div
-                                                        style={{
-                                                            fontSize: "11px",
-                                                            color: "#999",
-                                                            marginTop: "4px",
-                                                        }}
-                                                    >
-                                                        📅 {m.date}
-                                                        {m.time ? ` 🕒 ${m.time}` : ""}
-                                                    </div>
-
-                                                    {/* 地點 */}
-                                                    <div
-                                                        style={{
-                                                            fontSize: "11px",
-                                                            color: "#666",
-                                                            marginTop: "2px",
-                                                            overflow: "hidden",
-                                                            textOverflow: "ellipsis",
-                                                            whiteSpace: "nowrap",
-                                                        }}
-                                                        title={m.location || ""}
-                                                    >
-                                                        📍 {m.location || "未記錄地點"}
-                                                    </div>
-                                                </div>
-                                                <div
-                                                    style={{
-                                                        display: "flex",
-                                                        gap: "6px",
-                                                    }}
-                                                >
-                                                    <button
-                                                        onClick={() => startEdit(m)}
-                                                        style={{
-                                                            border: "none",
-                                                            background: "transparent",
-                                                            color: "#667eea",
-                                                            fontSize: "11px",
-                                                            cursor: "pointer",
-                                                            padding: "2px 6px",
-                                                        }}
-                                                    >
-                                                        編輯
-                                                    </button>
-                                                    <button
-                                                        onClick={() =>
-                                                            deleteMarker(m.id)
-                                                        }
-                                                        style={{
-                                                            border: "none",
-                                                            background: "transparent",
-                                                            color: "#f44336",
-                                                            fontSize: "11px",
-                                                            cursor: "pointer",
-                                                            padding: "2px 6px",
-                                                        }}
-                                                    >
-                                                        刪除
-                                                    </button>
-                                                </div>
-                                            </>
-                                        )}
-                                    </li>
-                                ))}
-                        </ul>
-                    </div>
-                )}
             </div>
 
             {/* 篩選控制 */}
@@ -812,7 +755,7 @@ export default function TravelPage() {
                                 value={filterStart}
                                 onChange={(e) => setFilterStart(e.target.value)}
                                 style={{
-                                    width: "100%",
+                                    width: "90%",
                                     padding: "8px",
                                     borderRadius: "8px",
                                     border: "none",
@@ -835,7 +778,7 @@ export default function TravelPage() {
                                 value={filterEnd}
                                 onChange={(e) => setFilterEnd(e.target.value)}
                                 style={{
-                                    width: "100%",
+                                    width: "90%",
                                     padding: "8px",
                                     borderRadius: "8px",
                                     border: "none",
@@ -1014,7 +957,10 @@ export default function TravelPage() {
                     {/* 路線 */}
                     {routePath.length > 1 && (
                         <Polyline
-                            key={`route-${filteredMarkers.length}-${filteredMarkers.map(m => m.id).sort().join('-')}`}
+                            key={`route-${filteredMarkers.length}-${filteredMarkers
+                                .map((m) => m.id)
+                                .sort()
+                                .join("-")}`}
                             path={routePath}
                             options={{
                                 strokeColor: "#667eea",
@@ -1043,6 +989,210 @@ export default function TravelPage() {
                     ))}
                 </GoogleMap>
             </div>
+
+            {/* 📝 已紀錄行程（移到地圖下方） */}
+            {filteredMarkers.length > 0 && (
+                <div
+                    style={{
+                        marginTop: "16px",
+                        background: "rgba(255,255,255,0.95)",
+                        borderRadius: "12px",
+                        padding: "14px",
+                        boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+                    }}
+                >
+                    <h3
+                        style={{
+                            fontSize: "15px",
+                            margin: "0 0 10px",
+                            color: "#667eea",
+                            fontWeight: "600",
+                        }}
+                    >
+                        📝 已紀錄行程（依目前篩選）
+                    </h3>
+                    <ul
+                        style={{
+                            listStyle: "none",
+                            paddingLeft: 0,
+                            margin: 0,
+                            fontSize: "13px",
+                            maxHeight: "160px",
+                            overflowY: "auto",
+                        }}
+                    >
+                        {[...filteredMarkers]
+                            .sort((a, b) => b.timestamp - a.timestamp)
+                            .map((m) => {
+                                // ✅ 顯示時間字串：先看 start/end，再看舊的 time
+                                let timeLabel = "";
+                                if (m.startTime || m.endTime) {
+                                    const s = m.startTime || "";
+                                    const e = m.endTime || "";
+                                    if (s && e) timeLabel = `${s} ~ ${e}`;
+                                    else if (s) timeLabel = s;
+                                    else if (e) timeLabel = e;
+                                } else if (m.time) {
+                                    timeLabel = m.time;
+                                }
+
+                                return (
+                                    <li
+                                        key={m.id}
+                                        style={{
+                                            marginBottom: "8px",
+                                            padding: "8px",
+                                            background: "#f8f9fa",
+                                            borderRadius: "8px",
+                                            display: "flex",
+                                            justifyContent: "space-between",
+                                            alignItems: "center",
+                                        }}
+                                    >
+                                        {editingId === m.id ? (
+                                            <div
+                                                style={{
+                                                    flex: 1,
+                                                    display: "flex",
+                                                    gap: "8px",
+                                                }}
+                                            >
+                                                <input
+                                                    type="text"
+                                                    value={editText}
+                                                    onChange={(e) =>
+                                                        setEditText(
+                                                            e.target.value
+                                                        )
+                                                    }
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: "4px 8px",
+                                                        borderRadius: "6px",
+                                                        border: "1px solid #ddd",
+                                                        fontSize: "13px",
+                                                    }}
+                                                />
+                                                <button
+                                                    onClick={saveEdit}
+                                                    style={{
+                                                        border: "none",
+                                                        background: "#4caf50",
+                                                        color: "#fff",
+                                                        borderRadius: "6px",
+                                                        padding: "4px 8px",
+                                                        cursor: "pointer",
+                                                    }}
+                                                >
+                                                    <Check size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={cancelEdit}
+                                                    style={{
+                                                        border: "none",
+                                                        background: "#f44336",
+                                                        color: "#fff",
+                                                        borderRadius: "6px",
+                                                        padding: "4px 8px",
+                                                        cursor: "pointer",
+                                                    }}
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <div style={{ flex: 1 }}>
+                                                    {/* 事由 */}
+                                                    <div
+                                                        style={{
+                                                            color: "#555",
+                                                            lineHeight: "1.5",
+                                                        }}
+                                                    >
+                                                        {m.text}
+                                                    </div>
+
+                                                    {/* 日期 + 時間 */}
+                                                    <div
+                                                        style={{
+                                                            fontSize: "11px",
+                                                            color: "#999",
+                                                            marginTop: "4px",
+                                                        }}
+                                                    >
+                                                        📅 {m.date}
+                                                        {timeLabel
+                                                            ? ` 🕒 ${timeLabel}`
+                                                            : ""}
+                                                    </div>
+
+                                                    {/* 地點 */}
+                                                    <div
+                                                        style={{
+                                                            fontSize: "11px",
+                                                            color: "#666",
+                                                            marginTop: "2px",
+                                                            overflow: "hidden",
+                                                            textOverflow:
+                                                                "ellipsis",
+                                                            whiteSpace:
+                                                                "nowrap",
+                                                        }}
+                                                        title={m.location || ""}
+                                                    >
+                                                        📍{" "}
+                                                        {m.location ||
+                                                            "未記錄地點"}
+                                                    </div>
+                                                </div>
+                                                <div
+                                                    style={{
+                                                        display: "flex",
+                                                        gap: "6px",
+                                                    }}
+                                                >
+                                                    <button
+                                                        onClick={() =>
+                                                            startEdit(m)
+                                                        }
+                                                        style={{
+                                                            border: "none",
+                                                            background:
+                                                                "transparent",
+                                                            color: "#667eea",
+                                                            fontSize: "11px",
+                                                            cursor: "pointer",
+                                                            padding: "2px 6px",
+                                                        }}
+                                                    >
+                                                        編輯
+                                                    </button>
+                                                    <button
+                                                        onClick={() =>
+                                                            deleteMarker(m.id)
+                                                        }
+                                                        style={{
+                                                            border: "none",
+                                                            background:
+                                                                "transparent",
+                                                            color: "#f44336",
+                                                            fontSize: "11px",
+                                                            cursor: "pointer",
+                                                            padding: "2px 6px",
+                                                        }}
+                                                    >
+                                                        刪除
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </li>
+                                );
+                            })}
+                    </ul>
+                </div>
+            )}
         </div>
     );
 }
