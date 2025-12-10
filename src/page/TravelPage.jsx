@@ -1,55 +1,22 @@
-// --------- 分頁一:行程紀錄頁 ---------
+// --------- 分頁一:行程紀錄頁（Google Maps 版 + 必須按「建立」） ---------
 import { useEffect, useState } from "react";
 import {
-    MapContainer,
+    GoogleMap,
     Marker,
     Polyline,
-    Popup,
-    TileLayer,
-    useMap,
-    useMapEvents,
-} from "react-leaflet";
+    Autocomplete,
+    useJsApiLoader,
+} from "@react-google-maps/api";
 import { Check, MapPin, Trash2, X } from "lucide-react";
-import L from "leaflet";
 import storage from "../utils/storage";
 
-// Leaflet marker 圖示修正
-import iconUrl from "leaflet/dist/images/marker-icon.png";
-import iconShadowUrl from "leaflet/dist/images/marker-shadow.png";
+const defaultCenter = { lat: 23.7, lng: 121 }; // 台灣中間偏右
 
-const defaultIcon = new L.Icon({
-    iconUrl,
-    shadowUrl: iconShadowUrl,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-    popupAnchor: [1, -34],
-    shadowSize: [41, 41],
-});
-
-const defaultCenter = [23.7, 121];
-
-// 讓地圖飛到指定座標的元件
-function FlyToLocation({ position }) {
-    const map = useMap();
-
-    useEffect(() => {
-        if (position) {
-            map.setView(position, 13);
-        }
-    }, [position, map]);
-
-    return null;
-}
-
-// 點擊地圖新增標記
-function ClickHandler({ onAddMarker }) {
-    useMapEvents({
-        click(e) {
-            onAddMarker(e.latlng);
-        },
-    });
-    return null;
-}
+const mapContainerStyle = {
+    width: "100%",
+    height: "100%",
+};
+const libraries = ["places"];
 
 export default function TravelPage() {
     const [note, setNote] = useState("");
@@ -57,22 +24,38 @@ export default function TravelPage() {
     const [selectedDate, setSelectedDate] = useState(
         new Date().toISOString().split("T")[0]
     );
+    const [selectedTime, setSelectedTime] = useState(
+        new Date().toTimeString().slice(0, 5) // "HH:MM"
+    );
+
     const [showRoute, setShowRoute] = useState(true);
     const [editingId, setEditingId] = useState(null);
     const [editText, setEditText] = useState("");
 
-    // 🔍 搜尋相關 state
+    // 搜尋 / 地點選擇相關
     const [searchQuery, setSearchQuery] = useState("");
     const [isSearching, setIsSearching] = useState(false);
     const [searchError, setSearchError] = useState("");
-    const [searchTarget, setSearchTarget] = useState(null); // 給 FlyToLocation
-    const [searchResults, setSearchResults] = useState([]); // 候選地點列表
+    const [autocomplete, setAutocomplete] = useState(null);
 
-    // 📅 篩選相關 state：全部 / 單一天 / 區間
+    // 暫存「選好的地點」，要按「建立」才會真的變成行程
+    const [pendingPosition, setPendingPosition] = useState(null); // { lat, lng } | null
+    const [pendingLabel, setPendingLabel] = useState(""); // 給 UI 顯示
+
+    // 地圖物件
+    const [mapRef, setMapRef] = useState(null);
+
+    // 篩選：全部 / 單一天 / 區間
     const [filterMode, setFilterMode] = useState("all"); // 'all' | 'single' | 'range'
     const [filterDate, setFilterDate] = useState("");
     const [filterStart, setFilterStart] = useState("");
     const [filterEnd, setFilterEnd] = useState("");
+
+    // 載入 Google Maps Script
+    const { isLoaded, loadError } = useJsApiLoader({
+        googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+        libraries: libraries,
+    });
 
     useEffect(() => {
         const loadMarkers = async () => {
@@ -103,23 +86,48 @@ export default function TravelPage() {
         }
     };
 
-    const handleAddMarker = (latlng) => {
+    // ✅ 真正「建立行程」的動作：一定要有 note + pendingPosition
+    const handleCreateMarker = () => {
         if (!note.trim()) {
-            alert("請先輸入這次行程的備註,再點地圖。");
+            alert("請先輸入這次行程的事由（要做什麼 / 跟誰 / 有什麼特別）。");
+            return;
+        }
+        if (!pendingPosition) {
+            alert("請先在地圖點一下，或用上方搜尋選一個地點。");
             return;
         }
 
         const newMarker = {
             id: Date.now(),
-            position: [latlng.lat, latlng.lng],
-            text: note.trim(),
-            date: selectedDate,
+            position: [pendingPosition.lat, pendingPosition.lng],
+            text: note.trim(),         // 事由
+            date: selectedDate,        // 日期
+            time: selectedTime,        // 🕒 新增：時間
+            location: pendingLabel,    // 📍 新增：地點名稱（或你暫存的文字）
             timestamp: Date.now(),
         };
 
         const updated = [...markers, newMarker];
         saveMarkers(updated);
+
+        // 建立完成後，清掉事由與暫存地點，但保留日期與時間
         setNote("");
+        setPendingPosition(null);
+        setPendingLabel("");
+    };
+
+    // 地圖點擊：只設定「暫存地點」，不會直接新增行程
+    const handleMapClick = (e) => {
+        if (!e || !e.latLng) return;
+        const lat = e.latLng.lat();
+        const lng = e.latLng.lng();
+        setPendingPosition({ lat, lng });
+        setPendingLabel(`地圖選取點 (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
+
+        if (mapRef) {
+            mapRef.panTo({ lat, lng });
+            mapRef.setZoom(13);
+        }
     };
 
     const deleteMarker = (id) => {
@@ -155,106 +163,98 @@ export default function TravelPage() {
         }
     };
 
-    // 🔍 搜尋 API：找多筆候選地點
-    const handleSearch = async (e) => {
-        e.preventDefault();
-        if (!searchQuery.trim()) return;
+    // Autocomplete 載入
+    const onAutocompleteLoad = (ac) => {
+        setAutocomplete(ac);
+    };
 
+    // 選定地點：只設定暫存地點，不直接新增
+    const onPlaceChanged = () => {
+        if (!autocomplete) return;
         setIsSearching(true);
         setSearchError("");
-        setSearchResults([]);
-        setSearchTarget(null);
 
-        try {
-            const resp = await fetch(
-                `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&accept-language=zh-TW&q=${encodeURIComponent(
-                    searchQuery.trim()
-                )}`
-            );
-            const data = await resp.json();
+        const place = autocomplete.getPlace();
 
-            if (!Array.isArray(data) || data.length === 0) {
-                setSearchError("找不到這個地點，換個關鍵字試看看～");
-                return;
-            }
-
-            const results = data.map((item, idx) => ({
-                id: item.place_id ?? idx,
-                name: item.display_name,
-                lat: parseFloat(item.lat),
-                lon: parseFloat(item.lon),
-            }));
-            setSearchResults(results);
-        } catch (error) {
-            console.error("搜尋失敗：", error);
-            setSearchError("搜尋失敗，可能是網路或服務暫時有問題。");
-        } finally {
+        if (!place || !place.geometry || !place.geometry.location) {
+            setSearchError("這個地點沒有座標資訊，換個關鍵字試試看～");
             setIsSearching(false);
+            return;
         }
+
+        const lat = place.geometry.location.lat();
+        const lng = place.geometry.location.lng();
+        const name = place.name || place.formatted_address || "";
+
+        setPendingPosition({ lat, lng });
+        setPendingLabel(name || `選取地點 (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
+
+        if (mapRef) {
+            mapRef.panTo({ lat, lng });
+            mapRef.setZoom(13);
+        }
+
+        setIsSearching(false);
     };
 
-    // 🔍 點選某一個搜尋結果 → 飛過去 + 幫你加 marker
-    const handleSelectResult = (result) => {
-        const position = [result.lat, result.lon];
-        setSearchTarget(position);
-
-        // 文字優先用你現在打在 note 裡的內容，沒有就用地點名稱
-        const text = note.trim() || simplifyPlaceName(result.name);
-
-        const newMarker = {
-            id: Date.now(),
-            position,
-            text,
-            date: selectedDate,
-            timestamp: Date.now(),
-        };
-
-        const updated = [...markers, newMarker];
-        saveMarkers(updated);
-
-        // 使用後清理一下 UI
-        setNote(""); // 用完就清空備註，讓你下一筆可以重寫
-        setSearchResults([]);
-        setSearchError("");
-    };
-
-    // 把 Nominatim 的超長地點名稱變得短一點，人性化顯示
-    const simplifyPlaceName = (full) => {
-        if (!full) return "";
-        const parts = full.split(",");
-        if (parts.length === 0) return full;
-        return parts[0].trim();
-    };
-
-    // 📅 根據 filterMode 做日期篩選
+    // 日期篩選
     const filteredMarkers = markers.filter((m) => {
         if (filterMode === "all") return true;
 
         if (filterMode === "single") {
-            if (!filterDate) return true; // 還沒選日期時，先顯示全部
+            if (!filterDate) return true;
             return m.date === filterDate;
         }
 
         if (filterMode === "range") {
             if (!filterStart || !filterEnd) return true;
-            // 日期是 YYYY-MM-DD 字串，可以直接用字典順序比較
             return m.date >= filterStart && m.date <= filterEnd;
         }
 
         return true;
     });
 
-    // 路線座標：用「篩選後」的點來畫
-    const routeCoordinates =
-        showRoute && filteredMarkers.length > 1
-            ? [...filteredMarkers]
-                .sort((a, b) => a.timestamp - b.timestamp)
-                .map((m) => m.position)
+    // 先依日期 + 時間 + timestamp 排序
+    const sortedForRoute = [...filteredMarkers].sort((a, b) => {
+        if (a.date !== b.date) {
+            return a.date.localeCompare(b.date);
+        }
+        if (a.time && b.time && a.time !== b.time) {
+            return a.time.localeCompare(b.time);
+        }
+        return (a.timestamp || 0) - (b.timestamp || 0);
+    });
+
+    // 真正畫在地圖上的 path
+    const routePath =
+        showRoute && sortedForRoute.length > 1
+            ? sortedForRoute.map((m) => ({
+                lat: m.position[0],
+                lng: m.position[1],
+            }))
             : [];
 
-    // 統計資訊：用「篩選後」的資料來算
+
+    // 統計
     const totalMarkers = filteredMarkers.length;
     const uniqueDates = [...new Set(filteredMarkers.map((m) => m.date))].length;
+
+    // Google Map 載入狀態
+    if (loadError) {
+        return (
+            <div style={{ color: "#fff", padding: 16 }}>
+                地圖載入失敗，請稍後再試。
+            </div>
+        );
+    }
+
+    if (!isLoaded) {
+        return (
+            <div style={{ color: "#fff", padding: 16 }}>
+                地圖載入中…
+            </div>
+        );
+    }
 
     return (
         <div
@@ -263,7 +263,6 @@ export default function TravelPage() {
                 paddingBottom: "12px",
                 display: "flex",
                 flexDirection: "column",
-                // height: "100%",
                 minHeight: "100vh",
                 background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
             }}
@@ -321,7 +320,7 @@ export default function TravelPage() {
             </div>
 
             {/* 標題與控制 */}
-            <div style={{ marginBottom: "16px" }}>
+            <div style={{marginBottom: "16px"}}>
                 <div
                     style={{
                         display: "flex",
@@ -343,10 +342,10 @@ export default function TravelPage() {
                             gap: "8px",
                         }}
                     >
-                        <MapPin size={24} />
-                        旅遊行程紀錄
+                        <MapPin size={24}/>
+                        旅遊行程紀錄（Google Maps）
                     </h2>
-                    <div style={{ display: "flex", gap: "8px" }}>
+                    <div style={{display: "flex", gap: "8px"}}>
                         <button
                             onClick={() => setShowRoute(!showRoute)}
                             style={{
@@ -401,43 +400,82 @@ export default function TravelPage() {
                         fontWeight: "300",
                     }}
                 >
-                    💡 選擇日期、輸入描述,再「點地圖」或「用搜尋結果」來標記位置
+                    💡 <b>流程：</b> 先選日期 → 輸入事由 → 點地圖或用搜尋選地點 → 按「建立行程」。
                 </p>
 
-                {/* 新增行程用的日期（不影響篩選） */}
-                <div style={{ marginBottom: "12px" }}>
-                    <label
-                        style={{
-                            display: "block",
-                            fontSize: "12px",
-                            color: "rgba(255,255,255,0.8)",
-                            marginBottom: "4px",
-                        }}
-                    >
-                        新增行程的日期
-                    </label>
-                    <input
-                        type="date"
-                        value={selectedDate}
-                        onChange={(e) => setSelectedDate(e.target.value)}
-                        style={{
-                            width: "90%",
-                            padding: "12px",
-                            borderRadius: "12px",
-                            border: "none",
-                            fontSize: "14px",
-                            background: "rgba(255,255,255,0.95)",
-                            boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
-                            outline: "none",
-                        }}
-                    />
+                {/* 新增行程用的日期跟時間 */}
+                <div
+                    style={{
+                        marginBottom: "12px",
+                        display: "flex",
+                        gap: "10px",
+                    }}
+                >
+                    {/* 日期 */}
+                    <div style={{flex: 1}}>
+                        <label
+                            style={{
+                                display: "block",
+                                fontSize: "12px",
+                                color: "rgba(255,255,255,0.8)",
+                                marginBottom: "4px",
+                            }}
+                        >
+                            新增行程的日期
+                        </label>
+                        <input
+                            type="date"
+                            value={selectedDate}
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            style={{
+                                width: "100%",
+                                padding: "12px",
+                                borderRadius: "12px",
+                                border: "none",
+                                fontSize: "14px",
+                                background: "rgba(255,255,255,0.95)",
+                                boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+                                outline: "none",
+                            }}
+                        />
+                    </div>
+
+                    {/* 時間 */}
+                    <div style={{width: "120px"}}>
+                        <label
+                            style={{
+                                display: "block",
+                                fontSize: "12px",
+                                color: "rgba(255,255,255,0.8)",
+                                marginBottom: "4px",
+                            }}
+                        >
+                            時間
+                        </label>
+                        <input
+                            type="time"
+                            value={selectedTime}
+                            onChange={(e) => setSelectedTime(e.target.value)}
+                            style={{
+                                width: "100%",
+                                padding: "12px",
+                                borderRadius: "12px",
+                                border: "none",
+                                fontSize: "14px",
+                                background: "rgba(255,255,255,0.95)",
+                                boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+                                outline: "none",
+                            }}
+                        />
+                    </div>
                 </div>
 
+                {/* 事由輸入 */}
                 <textarea
                     name="note"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder="例: 台中歌劇院,看展+吃燒肉飯 😋 (也可以先打要做的事，再用搜尋選點)"
+                    placeholder="例: 台中歌劇院，看展＋吃燒肉飯 😋（寫你要做什麼 / 跟誰 / 或心情）"
                     style={{
                         width: "100%",
                         minHeight: "70px",
@@ -542,7 +580,7 @@ export default function TravelPage() {
                                                         cursor: "pointer",
                                                     }}
                                                 >
-                                                    <Check size={14} />
+                                                    <Check size={14}/>
                                                 </button>
                                                 <button
                                                     onClick={cancelEdit}
@@ -555,12 +593,13 @@ export default function TravelPage() {
                                                         cursor: "pointer",
                                                     }}
                                                 >
-                                                    <X size={14} />
+                                                    <X size={14}/>
                                                 </button>
                                             </div>
                                         ) : (
                                             <>
-                                                <div style={{ flex: 1 }}>
+                                                <div style={{flex: 1}}>
+                                                    {/* 事由 */}
                                                     <div
                                                         style={{
                                                             color: "#555",
@@ -569,6 +608,8 @@ export default function TravelPage() {
                                                     >
                                                         {m.text}
                                                     </div>
+
+                                                    {/* 日期 + 時間 */}
                                                     <div
                                                         style={{
                                                             fontSize: "11px",
@@ -576,7 +617,23 @@ export default function TravelPage() {
                                                             marginTop: "4px",
                                                         }}
                                                     >
-                                                        {m.date}
+                                                        📅 {m.date}
+                                                        {m.time ? ` 🕒 ${m.time}` : ""}
+                                                    </div>
+
+                                                    {/* 地點 */}
+                                                    <div
+                                                        style={{
+                                                            fontSize: "11px",
+                                                            color: "#666",
+                                                            marginTop: "2px",
+                                                            overflow: "hidden",
+                                                            textOverflow: "ellipsis",
+                                                            whiteSpace: "nowrap",
+                                                        }}
+                                                        title={m.location || ""}
+                                                    >
+                                                        📍 {m.location || "未記錄地點"}
                                                     </div>
                                                 </div>
                                                 <div
@@ -589,8 +646,7 @@ export default function TravelPage() {
                                                         onClick={() => startEdit(m)}
                                                         style={{
                                                             border: "none",
-                                                            background:
-                                                                "transparent",
+                                                            background: "transparent",
                                                             color: "#667eea",
                                                             fontSize: "11px",
                                                             cursor: "pointer",
@@ -605,8 +661,7 @@ export default function TravelPage() {
                                                         }
                                                         style={{
                                                             border: "none",
-                                                            background:
-                                                                "transparent",
+                                                            background: "transparent",
                                                             color: "#f44336",
                                                             fontSize: "11px",
                                                             cursor: "pointer",
@@ -625,7 +680,7 @@ export default function TravelPage() {
                 )}
             </div>
 
-            {/* 📅 篩選控制：全部 / 單一天 / 區間 */}
+            {/* 篩選控制 */}
             <div
                 style={{
                     marginTop: "8px",
@@ -716,7 +771,6 @@ export default function TravelPage() {
                     </div>
                 </div>
 
-                {/* 單一天 */}
                 {filterMode === "single" && (
                     <div style={{ marginTop: "4px" }}>
                         <input
@@ -735,7 +789,6 @@ export default function TravelPage() {
                     </div>
                 )}
 
-                {/* 區間 */}
                 {filterMode === "range" && (
                     <div
                         style={{
@@ -795,40 +848,48 @@ export default function TravelPage() {
                 )}
             </div>
 
-            {/* 地點搜尋 + 搜尋結果列表 */}
+            {/* 搜尋 + 建立行程區塊 */}
             <div
                 style={{
                     marginTop: "8px",
                     marginBottom: "8px",
+                    background: "rgba(255,255,255,0.18)",
+                    borderRadius: "12px",
+                    padding: "8px 10px",
                 }}
             >
-                <form
-                    onSubmit={handleSearch}
+                {/* 搜尋列 */}
+                <div
                     style={{
                         display: "flex",
                         gap: "8px",
                         alignItems: "center",
-                        marginBottom: "4px",
+                        marginBottom: "6px",
                     }}
                 >
-                    <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="🔍 搜尋地點，例如：台北、台中車站、六合夜市⋯"
-                        style={{
-                            flex: 1,
-                            padding: "8px 10px",
-                            borderRadius: "10px",
-                            border: "none",
-                            fontSize: "13px",
-                            background: "rgba(255,255,255,0.95)",
-                            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-                            outline: "none",
-                        }}
-                    />
+                    <Autocomplete
+                        onLoad={onAutocompleteLoad}
+                        onPlaceChanged={onPlaceChanged}
+                    >
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="🔍 搜尋地點，例如：台北車站、六合夜市、台南美術館⋯"
+                            style={{
+                                flex: 1,
+                                padding: "8px 10px",
+                                borderRadius: "10px",
+                                border: "none",
+                                fontSize: "13px",
+                                background: "rgba(255,255,255,0.95)",
+                                boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                                outline: "none",
+                            }}
+                        />
+                    </Autocomplete>
                     <button
-                        type="submit"
+                        type="button"
                         disabled={isSearching}
                         style={{
                             padding: "8px 12px",
@@ -841,10 +902,65 @@ export default function TravelPage() {
                             opacity: isSearching ? 0.7 : 1,
                             boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                         }}
+                        onClick={onPlaceChanged}
                     >
                         {isSearching ? "搜尋中…" : "搜尋"}
                     </button>
-                </form>
+                </div>
+
+                {/* 目前選擇地點 + 建立按鈕 */}
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "8px",
+                        marginTop: "4px",
+                    }}
+                >
+                    <div
+                        style={{
+                            flex: 1,
+                            fontSize: "12px",
+                            color: "rgba(255,255,255,0.9)",
+                        }}
+                    >
+                        目前選擇地點：
+                        <span
+                            style={{
+                                fontWeight: "600",
+                                color: pendingPosition
+                                    ? "#e0f2fe"
+                                    : "rgba(255,255,255,0.7)",
+                            }}
+                        >
+                            {pendingPosition ? pendingLabel || "已選擇" : "尚未選擇"}
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleCreateMarker}
+                        style={{
+                            border: "none",
+                            borderRadius: "999px",
+                            padding: "6px 12px",
+                            fontSize: "13px",
+                            background:
+                                pendingPosition && note.trim()
+                                    ? "#22c55e"
+                                    : "rgba(148,163,184,0.7)",
+                            color: "#fff",
+                            cursor:
+                                pendingPosition && note.trim()
+                                    ? "pointer"
+                                    : "not-allowed",
+                            boxShadow: "0 2px 4px rgba(0,0,0,0.15)",
+                            whiteSpace: "nowrap",
+                        }}
+                    >
+                        建立行程
+                    </button>
+                </div>
 
                 {searchError && (
                     <div
@@ -857,121 +973,75 @@ export default function TravelPage() {
                         {searchError}
                     </div>
                 )}
-
-                {searchResults.length > 0 && (
-                    <div
-                        style={{
-                            marginTop: "6px",
-                            maxHeight: "140px",
-                            overflowY: "auto",
-                            background: "rgba(255,255,255,0.96)",
-                            borderRadius: "10px",
-                            boxShadow: "0 4px 8px rgba(0,0,0,0.15)",
-                            padding: "6px 4px",
-                        }}
-                    >
-                        {searchResults.map((r) => {
-                            const parts = r.name.split(",");
-                            const title = parts[0]?.trim() || r.name;
-                            const subtitle = parts.slice(1).join(",").trim();
-                            return (
-                                <button
-                                    key={r.id}
-                                    type="button"
-                                    onClick={() => handleSelectResult(r)}
-                                    style={{
-                                        width: "100%",
-                                        textAlign: "left",
-                                        padding: "6px 10px",
-                                        border: "none",
-                                        background: "transparent",
-                                        cursor: "pointer",
-                                    }}
-                                >
-                                    <div
-                                        style={{
-                                            fontSize: "13px",
-                                            color: "#333",
-                                        }}
-                                    >
-                                        {title}
-                                    </div>
-                                    {subtitle && (
-                                        <div
-                                            style={{
-                                                fontSize: "11px",
-                                                color: "#888",
-                                                marginTop: "2px",
-                                            }}
-                                        >
-                                            {subtitle}
-                                        </div>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
-                )}
             </div>
 
-            {/* 地圖 */}
+            {/* Google Map */}
             <div
                 style={{
-                    // flex: 1,
                     height: "320px",
                     borderRadius: "16px",
                     overflow: "hidden",
                     boxShadow: "0 8px 16px rgba(0,0,0,0.2)",
                 }}
             >
-                <MapContainer
+                <GoogleMap
+                    mapContainerStyle={mapContainerStyle}
                     center={defaultCenter}
                     zoom={7}
-                    scrollWheelZoom={true}
-                    style={{ width: "100%", height: "100%" }}
+                    onLoad={(map) => setMapRef(map)}
+                    onClick={handleMapClick}
+                    options={{
+                        fullscreenControl: false,
+                        streetViewControl: false,
+                        mapTypeControl: false,
+                    }}
                 >
-                    <TileLayer
-                        attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> 貢獻者'
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-
-                    {/* 地圖點擊新增 marker */}
-                    <ClickHandler onAddMarker={handleAddMarker} />
-
-                    {/* 搜尋到的地點，讓地圖飛過去 */}
-                    {searchTarget && <FlyToLocation position={searchTarget} />}
-
-                    {/* 路線（使用篩選後的點） */}
-                    {routeCoordinates.length > 1 && (
-                        <Polyline
-                            positions={routeCoordinates}
-                            color="#667eea"
-                            weight={3}
-                            opacity={0.7}
-                            dashArray="10, 10"
+                    {/* 暫存選擇地點 (pending marker) */}
+                    {pendingPosition && (
+                        <Marker
+                            position={pendingPosition}
+                            icon={{
+                                path: window.google.maps.SymbolPath.CIRCLE,
+                                scale: 8,
+                                fillColor: "#22c55e",
+                                fillOpacity: 0.9,
+                                strokeColor: "#ffffff",
+                                strokeWeight: 2,
+                            }}
                         />
                     )}
 
-                    {/* 現有標記（使用篩選後的點） */}
+                    {/* 路線 */}
+                    {routePath.length > 1 && (
+                        <Polyline
+                            key={`route-${filteredMarkers.length}-${filteredMarkers.map(m => m.id).sort().join('-')}`}
+                            path={routePath}
+                            options={{
+                                strokeColor: "#667eea",
+                                strokeOpacity: 0.8,
+                                strokeWeight: 3,
+                            }}
+                        />
+                    )}
+
+                    {/* 已建立行程 marker */}
                     {filteredMarkers.map((m) => (
-                        <Marker key={m.id} position={m.position} icon={defaultIcon}>
-                            <Popup>
-                                <div style={{ fontSize: "13px" }}>
-                                    <strong>{m.text}</strong>
-                                    <div
-                                        style={{
-                                            fontSize: "11px",
-                                            color: "#666",
-                                            marginTop: "4px",
-                                        }}
-                                    >
-                                        {m.date}
-                                    </div>
-                                </div>
-                            </Popup>
-                        </Marker>
+                        <Marker
+                            key={m.id}
+                            position={{
+                                lat: m.position[0],
+                                lng: m.position[1],
+                            }}
+                            label={{
+                                text:
+                                    m.text.length > 6
+                                        ? m.text.slice(0, 6) + "…"
+                                        : m.text,
+                                fontSize: "10px",
+                            }}
+                        />
                     ))}
-                </MapContainer>
+                </GoogleMap>
             </div>
         </div>
     );
