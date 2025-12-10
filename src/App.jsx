@@ -1,51 +1,43 @@
 import { useState } from "react";
-// import Login from "./components/Login"; // Import the Login component
-import {
-    MapPin,
-    Package,
-    FileText,
-} from "lucide-react";
+import { MapPin, Package, FileText } from "lucide-react";
 import TravelPage from "./page/TravelPage.jsx";
 import PackingPage from "./page/PackingPage.jsx";
 import NotesPage from "./page/NotesPage.jsx";
 
+const TAB_BAR_HEIGHT = 64;
+
 // --------- 上層 App:控制分頁切換 ---------
 export default function App() {
     const [tab, setTab] = useState("travel");
-    // const [isLoggedIn, setIsLoggedIn] = useState(false); // New state for login status
-
-    // const handleLoginSuccess = () => {
-    //     setIsLoggedIn(true);
-    // };
-    //
-    // if (!isLoggedIn) {
-    //     return <Login onLoginSuccess={handleLoginSuccess} />;
-    // }
 
     return (
-        <div
-            style={{
-                height: "100vh",
-                display: "flex",
-                flexDirection: "column",
-                background: "#f5f5f5",
-            }}
-        >
-            {/* 上面內容區 */}
-            <div style={{ flex: 1}}>
+        <>
+            {/* 上面內容區：整頁可以捲動，預留底部導航高度 */}
+            <div
+                style={{
+                    minHeight: "100vh",          // ✅ 至少一個螢幕高，可以再往下長
+                    paddingBottom: TAB_BAR_HEIGHT + 8, // ✅ 預留空間給底部 tab，不會被蓋住
+                    background: "#f5f5f5",
+                }}
+            >
                 {tab === "travel" && <TravelPage />}
                 {tab === "packing" && <PackingPage />}
                 {tab === "notes" && <NotesPage />}
             </div>
 
-            {/* 底部分頁列 */}
+            {/* 底部分頁列：固定在螢幕最底下 */}
             <nav
                 style={{
-                    height: "64px",
+                    position: "fixed",
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: TAB_BAR_HEIGHT,
                     borderTop: "none",
                     display: "flex",
                     background: "#fff",
                     boxShadow: "0 -4px 12px rgba(0,0,0,0.1)",
+                    zIndex: 1000,
                 }}
             >
                 <button
@@ -74,6 +66,7 @@ export default function App() {
                     />
                     <div>行程紀錄</div>
                 </button>
+
                 <button
                     onClick={() => setTab("packing")}
                     style={{
@@ -100,6 +93,7 @@ export default function App() {
                     />
                     <div>行李清單</div>
                 </button>
+
                 <button
                     onClick={() => setTab("notes")}
                     style={{
@@ -127,6 +121,6 @@ export default function App() {
                     <div>旅遊筆記</div>
                 </button>
             </nav>
-        </div>
+        </>
     );
 }
