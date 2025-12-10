@@ -1,20 +1,49 @@
 // --------- 分頁二:行李清單頁 ---------
-import {useEffect, useState} from "react";
-import {Package, Plus, Trash2} from "lucide-react";
+import { useEffect, useState } from "react";
+import { Package, Plus, Trash2 } from "lucide-react";
 import storage from "../utils/storage";
+import { packingTemplates } from "../data/packingTemplates";
+
+const ITEMS_STORAGE_KEY = "packing_items";
+const TEMPLATE_STORAGE_KEY = "packing_template";
 
 export default function PackingPage() {
     const [itemInput, setItemInput] = useState("");
     const [items, setItems] = useState([]);
     const [category, setCategory] = useState("其他");
     const [filterCategory, setFilterCategory] = useState("全部");
+    const [selectedTemplateId, setSelectedTemplateId] = useState(
+        packingTemplates[0]?.id ?? "basic"
+    );
 
     const categories = ["證件", "電子產品", "衣物", "盥洗用品", "藥品", "其他"];
 
+    // 讀取：模板選擇 + 清單內容
     useEffect(() => {
-        const loadItems = async () => {
+        const load = async () => {
+            // 先載入模板 ID
+            let templateId = packingTemplates[0]?.id ?? "basic";
+
             try {
-                const result = await storage.get("packing_items");
+                const tplResult = await storage.get(TEMPLATE_STORAGE_KEY);
+                if (tplResult && tplResult.value) {
+                    const parsed = JSON.parse(tplResult.value);
+                    if (
+                        typeof parsed === "string" &&
+                        packingTemplates.some((t) => t.id === parsed)
+                    ) {
+                        templateId = parsed;
+                    }
+                }
+            } catch (err) {
+                console.log("載入模板選擇失敗，使用預設模板", err?.message ?? err);
+            }
+
+            setSelectedTemplateId(templateId);
+
+            // 再載入清單資料
+            try {
+                const result = await storage.get(ITEMS_STORAGE_KEY);
                 if (result && result.value) {
                     const parsed = JSON.parse(result.value);
                     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -23,52 +52,64 @@ export default function PackingPage() {
                     }
                 }
             } catch (err) {
-                console.log("首次使用,載入預設清單 (error info)：", err.message);
+                console.log(
+                    "載入既有行李清單失敗，改用模板",
+                    err?.message ?? err
+                );
             }
 
-            setItems([
-                {
-                    id: 1,
-                    text: "護照 / 身分證",
-                    checked: false,
-                    category: "證件",
-                },
-                {
-                    id: 2,
-                    text: "錢包(現金+信用卡)",
-                    checked: false,
-                    category: "證件",
-                },
-                {
-                    id: 3,
-                    text: "充電線、行動電源",
-                    checked: false,
-                    category: "電子產品",
-                },
-                {
-                    id: 4,
-                    text: "換洗衣物",
-                    checked: false,
-                    category: "衣物",
-                },
-                {
-                    id: 5,
-                    text: "牙刷牙膏",
-                    checked: false,
-                    category: "盥洗用品",
-                },
-            ]);
+            // 如果沒有既有清單，就用目前模板的內容
+            const template =
+                packingTemplates.find((t) => t.id === templateId) ??
+                packingTemplates[0];
+
+            setItems(template.items);
         };
-        loadItems();
+
+        load();
     }, []);
 
+    // 儲存清單
     const saveItems = async (newItems) => {
         setItems(newItems);
         try {
-            await storage.set("packing_items", JSON.stringify(newItems));
+            await storage.set(ITEMS_STORAGE_KEY, JSON.stringify(newItems));
         } catch (err) {
             console.error("儲存行李清單失敗", err);
         }
+    };
+
+    // 儲存模板選擇
+    const saveTemplateId = async (id) => {
+        setSelectedTemplateId(id);
+        try {
+            await storage.set(TEMPLATE_STORAGE_KEY, JSON.stringify(id));
+        } catch (err) {
+            console.error("儲存模板選擇失敗", err);
+        }
+    };
+
+    // 套用模板 → 覆蓋目前清單
+    const applyTemplate = async () => {
+        const template = packingTemplates.find(
+            (t) => t.id === selectedTemplateId
+        );
+        if (!template) return;
+
+        if (
+            items.length > 0 &&
+            !window.confirm("套用模板會覆蓋目前清單，確定要繼續嗎？")
+        ) {
+            return;
+        }
+
+        // 確保 checked 都重置為 false
+        const cloned = template.items.map((it) => ({
+            ...it,
+            checked: false,
+        }));
+
+        await saveItems(cloned);
     };
 
     const addItem = () => {
@@ -96,13 +137,13 @@ export default function PackingPage() {
     };
 
     const clearItems = () => {
-        if (window.confirm("確定要清空行李清單嗎?")) {
+        if (window.confirm("確定要清空行李清單嗎？")) {
             saveItems([]);
         }
     };
 
     const clearChecked = () => {
-        if (window.confirm("確定要清除所有已勾選的項目嗎?")) {
+        if (window.confirm("確定要清除所有已勾選的項目嗎？")) {
             const updated = items.filter((it) => !it.checked);
             saveItems(updated);
         }
@@ -127,7 +168,7 @@ export default function PackingPage() {
                 paddingBottom: "76px",
                 display: "flex",
                 flexDirection: "column",
-                height: "100%",
+                // height: "100%",  // 建議不要寫死高度，讓外層控制滾動
                 background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
             }}
         >
@@ -188,7 +229,7 @@ export default function PackingPage() {
                 </div>
             </div>
 
-            {/* 標題 */}
+            {/* 標題 + 清單操作 */}
             <div
                 style={{
                     display: "flex",
@@ -262,14 +303,88 @@ export default function PackingPage() {
                 style={{
                     fontSize: "13px",
                     color: "rgba(255,255,255,0.9)",
-                    margin: "0 0 16px",
+                    margin: "0 0 12px",
                     fontWeight: "300",
                 }}
             >
-                ✓ 勾選代表已經收進包包,可以分類管理物品
+                ✓ 勾選代表已經收進包包，可以依照模板調整成自己的版本
             </p>
 
-            {/* 分類選擇 */}
+            {/* 模板選擇區 */}
+            <div
+                style={{
+                    background: "rgba(255,255,255,0.9)",
+                    borderRadius: "12px",
+                    padding: "10px 12px",
+                    marginBottom: "14px",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                }}
+            >
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        marginBottom: "6px",
+                    }}
+                >
+                    <span
+                        style={{
+                            fontSize: "13px",
+                            fontWeight: "600",
+                            color: "#333",
+                            whiteSpace: "nowrap",
+                        }}
+                    >
+                        打包模板
+                    </span>
+                    <select
+                        value={selectedTemplateId}
+                        onChange={(e) => saveTemplateId(e.target.value)}
+                        style={{
+                            flex: 1,
+                            padding: "6px 8px",
+                            borderRadius: "8px",
+                            border: "1px solid #ddd",
+                            fontSize: "13px",
+                            outline: "none",
+                        }}
+                    >
+                        {packingTemplates.map((tpl) => (
+                            <option key={tpl.id} value={tpl.id}>
+                                {tpl.name}
+                            </option>
+                        ))}
+                    </select>
+                    <button
+                        onClick={applyTemplate}
+                        style={{
+                            border: "none",
+                            borderRadius: "8px",
+                            padding: "6px 10px",
+                            fontSize: "12px",
+                            background:
+                                "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+                            color: "#fff",
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                        }}
+                    >
+                        套用模板
+                    </button>
+                </div>
+                <div
+                    style={{
+                        fontSize: "11px",
+                        color: "#666",
+                        marginTop: "2px",
+                    }}
+                >
+                    會記住你選的模板，下次打開一樣；若想重來，可清空後再套用模板。
+                </div>
+            </div>
+
+            {/* 分類選擇（新增時要放哪一類） */}
             <div
                 style={{
                     display: "flex",
@@ -316,7 +431,7 @@ export default function PackingPage() {
                     type="text"
                     value={itemInput}
                     onChange={(e) => setItemInput(e.target.value)}
-                    placeholder="例:雨傘、相機、藥品⋯"
+                    placeholder="例: 雨傘、相機、藥品⋯"
                     style={{
                         flex: 1,
                         padding: "12px 14px",
@@ -354,7 +469,7 @@ export default function PackingPage() {
                 </button>
             </div>
 
-            {/* 篩選標籤 */}
+            {/* 篩選標籤（看哪一類） */}
             <div
                 style={{
                     display: "flex",
@@ -441,7 +556,7 @@ export default function PackingPage() {
                         }}
                     >
                         {items.length === 0
-                            ? "還沒有東西,先新增幾項必備物品吧!"
+                            ? "還沒有東西，可以套用模板或新增幾項必備物品！"
                             : "此分類目前沒有項目"}
                     </p>
                 ) : (
